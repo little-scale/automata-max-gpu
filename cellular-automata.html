@@ -1,0 +1,1567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU Cellular Automata</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a0a;
+            color: #e0e0e0;
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+        #canvas-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+        }
+        canvas { cursor: crosshair; }
+        #controls {
+            width: 300px;
+            padding: 16px;
+            background: #111;
+            border-left: 1px solid #222;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .section {
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 4px;
+            padding: 12px;
+        }
+        .section h3 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #2a2a2a;
+            padding-bottom: 6px;
+        }
+        .row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .row:last-child { margin-bottom: 0; }
+        label { color: #aaa; font-size: 11px; }
+        input[type="range"] {
+            width: 110px;
+            accent-color: #4a9eff;
+        }
+        input[type="number"] {
+            width: 55px;
+            background: #222;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 4px;
+            border-radius: 2px;
+            text-align: right;
+            font-size: 11px;
+        }
+        input[type="color"] {
+            width: 36px;
+            height: 22px;
+            border: none;
+            background: none;
+            cursor: pointer;
+        }
+        select {
+            background: #222;
+            border: 1px solid #333;
+            color: #fff;
+            padding: 6px 8px;
+            border-radius: 2px;
+            width: 100%;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        button {
+            background: #2a2a2a;
+            border: 1px solid #3a3a3a;
+            color: #ddd;
+            padding: 6px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.15s;
+            flex: 1;
+            font-size: 11px;
+        }
+        button:hover { background: #3a3a3a; border-color: #4a9eff; }
+        button:active { background: #4a9eff; color: #000; }
+        button.active { background: #4a9eff; color: #000; border-color: #4a9eff; }
+        .button-row { display: flex; gap: 6px; }
+        .rule-grid {
+            display: grid;
+            grid-template-columns: repeat(9, 1fr);
+            gap: 3px;
+            margin-top: 8px;
+        }
+        .rule-btn {
+            aspect-ratio: 1;
+            padding: 0;
+            font-size: 9px;
+            min-width: 0;
+        }
+        .rule-btn.active { background: #4a9eff; color: #000; }
+        .stats {
+            font-size: 10px;
+            color: #666;
+            display: flex;
+            justify-content: space-between;
+        }
+        #max-status {
+            font-size: 10px;
+            padding: 6px 8px;
+            background: #1a1a1a;
+            border-radius: 3px;
+            text-align: center;
+        }
+        #max-status.connected { color: #4a9eff; }
+        #max-status.disconnected { color: #666; }
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        input[type="checkbox"] {
+            accent-color: #4a9eff;
+            width: 14px;
+            height: 14px;
+        }
+        .mode-params { display: none; }
+        .mode-params.active { display: block; }
+        .slider-value {
+            font-size: 10px;
+            color: #666;
+            min-width: 35px;
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+    </div>
+    <div id="controls">
+        <div id="max-status" class="disconnected">Max: Disconnected</div>
+        
+        <div class="section">
+            <h3>System</h3>
+            <select id="mode-select">
+                <option value="classic">Classic (Binary)</option>
+                <option value="classicfade">Classic + Fade</option>
+                <option value="smoothlife">Smooth Life</option>
+                <option value="lenia" selected>Lenia</option>
+                <option value="grayscott">Gray-Scott</option>
+            </select>
+        </div>
+
+        <div class="section">
+            <h3>Playback</h3>
+            <div class="button-row">
+                <button id="btn-play" class="active">Play</button>
+                <button id="btn-pause">Pause</button>
+                <button id="btn-step">Step</button>
+            </div>
+            <div class="row" style="margin-top: 10px;">
+                <label>Speed</label>
+                <input type="range" id="speed" min="1" max="20" value="1">
+                <span class="slider-value" id="speed-val">1</span>
+            </div>
+        </div>
+
+        <!-- Classic Mode Parameters -->
+        <div class="mode-params" id="params-classic">
+            <div class="section">
+                <h3>Rule Preset</h3>
+                <select id="rule-preset">
+                    <option value="life">Conway's Life (B3/S23)</option>
+                    <option value="seeds">Seeds (B2/S)</option>
+                    <option value="daynight">Day & Night</option>
+                    <option value="highlife">HighLife (B36/S23)</option>
+                    <option value="diamoeba">Diamoeba</option>
+                    <option value="maze">Maze</option>
+                    <option value="custom">Custom</option>
+                </select>
+            </div>
+            <div class="section">
+                <h3>Birth (neighbors)</h3>
+                <div class="rule-grid" id="birth-rules"></div>
+            </div>
+            <div class="section">
+                <h3>Survival (neighbors)</h3>
+                <div class="rule-grid" id="survival-rules"></div>
+            </div>
+        </div>
+
+        <!-- Classic + Fade Parameters -->
+        <div class="mode-params" id="params-classicfade">
+            <div class="section">
+                <h3>Fade Settings</h3>
+                <div class="row">
+                    <label>Decay Rate</label>
+                    <input type="range" id="fade-decay" min="0.01" max="0.3" step="0.01" value="0.05">
+                    <span class="slider-value" id="fade-decay-val">0.05</span>
+                </div>
+                <div class="row">
+                    <label>Birth Threshold</label>
+                    <input type="range" id="fade-birth" min="0.1" max="0.9" step="0.05" value="0.5">
+                    <span class="slider-value" id="fade-birth-val">0.5</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Smooth Life Parameters -->
+        <div class="mode-params" id="params-smoothlife">
+            <div class="section">
+                <h3>Smooth Life</h3>
+                <div class="row">
+                    <label>Inner Radius</label>
+                    <input type="range" id="sl-ri" min="2" max="10" step="0.5" value="4">
+                    <span class="slider-value" id="sl-ri-val">4</span>
+                </div>
+                <div class="row">
+                    <label>Outer Radius</label>
+                    <input type="range" id="sl-ra" min="6" max="20" step="0.5" value="12">
+                    <span class="slider-value" id="sl-ra-val">12</span>
+                </div>
+                <div class="row">
+                    <label>Birth Min</label>
+                    <input type="range" id="sl-b1" min="0" max="1" step="0.01" value="0.278">
+                    <span class="slider-value" id="sl-b1-val">0.278</span>
+                </div>
+                <div class="row">
+                    <label>Birth Max</label>
+                    <input type="range" id="sl-b2" min="0" max="1" step="0.01" value="0.365">
+                    <span class="slider-value" id="sl-b2-val">0.365</span>
+                </div>
+                <div class="row">
+                    <label>Death Min</label>
+                    <input type="range" id="sl-d1" min="0" max="1" step="0.01" value="0.267">
+                    <span class="slider-value" id="sl-d1-val">0.267</span>
+                </div>
+                <div class="row">
+                    <label>Death Max</label>
+                    <input type="range" id="sl-d2" min="0" max="1" step="0.01" value="0.445">
+                    <span class="slider-value" id="sl-d2-val">0.445</span>
+                </div>
+                <div class="row">
+                    <label>Alpha (smooth)</label>
+                    <input type="range" id="sl-alpha" min="0.01" max="0.5" step="0.01" value="0.147">
+                    <span class="slider-value" id="sl-alpha-val">0.147</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lenia Parameters -->
+        <div class="mode-params active" id="params-lenia">
+            <div class="section">
+                <h3>Lenia</h3>
+                <div class="row">
+                    <label>Radius</label>
+                    <input type="range" id="lenia-r" min="5" max="30" step="1" value="13">
+                    <span class="slider-value" id="lenia-r-val">13</span>
+                </div>
+                <div class="row">
+                    <label>Growth μ</label>
+                    <input type="range" id="lenia-mu" min="0" max="1" step="0.01" value="0.15">
+                    <span class="slider-value" id="lenia-mu-val">0.15</span>
+                </div>
+                <div class="row">
+                    <label>Growth σ</label>
+                    <input type="range" id="lenia-sigma" min="0.001" max="0.2" step="0.001" value="0.017">
+                    <span class="slider-value" id="lenia-sigma-val">0.017</span>
+                </div>
+                <div class="row">
+                    <label>Time Step</label>
+                    <input type="range" id="lenia-dt" min="0.05" max="1" step="0.05" value="0.1">
+                    <span class="slider-value" id="lenia-dt-val">0.1</span>
+                </div>
+            </div>
+            <div class="section">
+                <h3>Lenia Presets</h3>
+                <select id="lenia-preset">
+                    <option value="orbium">Orbium (glider)</option>
+                    <option value="geminium">Geminium (split)</option>
+                    <option value="hydrogeminium">Hydrogeminium</option>
+                    <option value="custom">Custom</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Gray-Scott Parameters -->
+        <div class="mode-params" id="params-grayscott">
+            <div class="section">
+                <h3>Gray-Scott</h3>
+                <div class="row">
+                    <label>Feed Rate (f)</label>
+                    <input type="range" id="gs-f" min="0.01" max="0.1" step="0.001" value="0.055">
+                    <span class="slider-value" id="gs-f-val">0.055</span>
+                </div>
+                <div class="row">
+                    <label>Kill Rate (k)</label>
+                    <input type="range" id="gs-k" min="0.03" max="0.07" step="0.001" value="0.062">
+                    <span class="slider-value" id="gs-k-val">0.062</span>
+                </div>
+                <div class="row">
+                    <label>Diffusion A</label>
+                    <input type="range" id="gs-da" min="0.1" max="1.5" step="0.05" value="1.0">
+                    <span class="slider-value" id="gs-da-val">1.0</span>
+                </div>
+                <div class="row">
+                    <label>Diffusion B</label>
+                    <input type="range" id="gs-db" min="0.1" max="1" step="0.05" value="0.5">
+                    <span class="slider-value" id="gs-db-val">0.5</span>
+                </div>
+            </div>
+            <div class="section">
+                <h3>Gray-Scott Presets</h3>
+                <select id="gs-preset">
+                    <option value="mitosis">Mitosis</option>
+                    <option value="coral">Coral Growth</option>
+                    <option value="spirals">Spirals</option>
+                    <option value="spots">Spots</option>
+                    <option value="waves">Waves</option>
+                    <option value="custom">Custom</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Initialize</h3>
+            <select id="init-preset">
+                <option value="random">Random</option>
+                <option value="center">Center Blob</option>
+                <option value="multi">Multiple Seeds</option>
+                <option value="clear">Clear</option>
+            </select>
+            <div class="button-row" style="margin-top: 8px;">
+                <button id="btn-init">Initialize</button>
+                <button id="btn-clear">Clear</button>
+            </div>
+            <div class="row" style="margin-top: 8px;">
+                <label>Density</label>
+                <input type="range" id="density" min="0.01" max="0.5" step="0.01" value="0.15">
+                <span class="slider-value" id="density-val">0.15</span>
+            </div>
+            <div class="row">
+                <label>Brush Size</label>
+                <input type="range" id="brush-size" min="1" max="30" step="1" value="5">
+                <span class="slider-value" id="brush-size-val">5</span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Display</h3>
+            <div class="row">
+                <label>Cell Size</label>
+                <input type="number" id="cell-size" value="2" min="1" max="8">
+            </div>
+            <div class="row">
+                <label>Color 1</label>
+                <input type="color" id="color1" value="#ffffff">
+            </div>
+            <div class="row">
+                <label>Color 2</label>
+                <input type="color" id="color2" value="#000000">
+            </div>
+            <div class="row">
+                <label>Color 3 (GS)</label>
+                <input type="color" id="color3" value="#4a9eff">
+            </div>
+            <div class="checkbox-row">
+                <input type="checkbox" id="wrap" checked>
+                <label for="wrap">Wrap Edges</label>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Data Output</h3>
+            <div class="checkbox-row">
+                <input type="checkbox" id="sonify">
+                <label for="sonify">Enable Output</label>
+            </div>
+            <div class="row">
+                <label>Grid Cols</label>
+                <input type="range" id="sonify-cols" min="4" max="64" step="1" value="16">
+                <span class="slider-value" id="sonify-cols-val">16</span>
+            </div>
+            <div class="row">
+                <label>Grid Rows</label>
+                <input type="range" id="sonify-rows" min="4" max="64" step="1" value="16">
+                <span class="slider-value" id="sonify-rows-val">16</span>
+            </div>
+            <div class="row">
+                <label>Rate (ms)</label>
+                <input type="range" id="sonify-rate" min="10" max="200" step="10" value="50">
+                <span class="slider-value" id="sonify-rate-val">50</span>
+            </div>
+            <div class="stats" style="margin-top: 8px;">
+                <span>Mass: <span id="stat-mass">0</span></span>
+                <span>Center: <span id="stat-center">0, 0</span></span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Stats</h3>
+            <div class="stats">
+                <span>Gen: <span id="stat-gen">0</span></span>
+                <span>Grid: <span id="stat-grid">0x0</span></span>
+                <span>FPS: <span id="stat-fps">0</span></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ============================================================
+    // GPU CELLULAR AUTOMATA - Multi-Mode
+    // ============================================================
+
+    const canvas = document.getElementById('canvas');
+    const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true });
+    if (!gl) { alert('WebGL2 required'); throw new Error('No WebGL2'); }
+
+    // Enable float textures
+    const ext = gl.getExtension('EXT_color_buffer_float');
+    if (!ext) console.warn('EXT_color_buffer_float not available, using RGBA8');
+
+    // State
+    let state = {
+        mode: 'lenia',
+        running: true,
+        speed: 1,
+        cellSize: 2,
+        density: 0.15,
+        brushSize: 5,
+        wrap: true,
+        generation: 0,
+        gridWidth: 0,
+        gridHeight: 0,
+        // Classic
+        birth: [false,false,false,true,false,false,false,false,false],
+        survival: [false,false,true,true,false,false,false,false,false],
+        // Classic + Fade
+        fadeDecay: 0.05,
+        fadeBirthThreshold: 0.5,
+        // Smooth Life
+        sl: { ri: 4, ra: 12, b1: 0.278, b2: 0.365, d1: 0.267, d2: 0.445, alpha: 0.147 },
+        // Lenia
+        lenia: { r: 13, mu: 0.15, sigma: 0.017, dt: 0.1 },
+        // Gray-Scott
+        gs: { f: 0.055, k: 0.062, da: 1.0, db: 0.5 },
+        // Colors
+        color1: [1, 1, 1],
+        color2: [0, 0, 0],
+        color3: [0.29, 0.62, 1.0],
+        // Sonification
+        sonify: false,
+        sonifyCols: 16,
+        sonifyRows: 16,
+        sonifyRate: 50
+    };
+
+    // WebGL resources
+    let programs = {};
+    let textures = [null, null];
+    let framebuffers = [null, null];
+    let currentTex = 0;
+    let quadVAO;
+
+    // Stats
+    let frameCount = 0, lastFpsTime = performance.now(), currentFps = 0;
+
+    // ============================================================
+    // SHADERS
+    // ============================================================
+
+    const vertexShader = `#version 300 es
+        in vec2 a_pos;
+        out vec2 v_uv;
+        void main() {
+            v_uv = a_pos * 0.5 + 0.5;
+            gl_Position = vec4(a_pos, 0, 1);
+        }
+    `;
+
+    const classicFrag = `#version 300 es
+        precision highp float;
+        uniform sampler2D u_state;
+        uniform vec2 u_res;
+        uniform int u_birth[9];
+        uniform int u_survival[9];
+        uniform bool u_wrap;
+        in vec2 v_uv;
+        out vec4 fragColor;
+        
+        float get(vec2 off) {
+            vec2 uv = v_uv + off / u_res;
+            if (u_wrap) uv = fract(uv);
+            else if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+            return texture(u_state, uv).r;
+        }
+        
+        void main() {
+            float c = get(vec2(0));
+            int n = 0;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (dx == 0 && dy == 0) continue;
+                    n += int(get(vec2(dx, dy)) > 0.5);
+                }
+            }
+            float next = 0.0;
+            if (c > 0.5) { if (u_survival[n] == 1) next = 1.0; }
+            else { if (u_birth[n] == 1) next = 1.0; }
+            fragColor = vec4(next, 0, 0, 1);
+        }
+    `;
+
+    const classicFadeFrag = `#version 300 es
+        precision highp float;
+        uniform sampler2D u_state;
+        uniform vec2 u_res;
+        uniform int u_birth[9];
+        uniform int u_survival[9];
+        uniform bool u_wrap;
+        uniform float u_decay;
+        uniform float u_birthThresh;
+        in vec2 v_uv;
+        out vec4 fragColor;
+        
+        float get(vec2 off) {
+            vec2 uv = v_uv + off / u_res;
+            if (u_wrap) uv = fract(uv);
+            else if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+            return texture(u_state, uv).r;
+        }
+        
+        void main() {
+            float c = get(vec2(0));
+            int n = 0;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    if (dx == 0 && dy == 0) continue;
+                    n += int(get(vec2(dx, dy)) > u_birthThresh);
+                }
+            }
+            float next = c;
+            bool alive = c > u_birthThresh;
+            if (alive) {
+                if (u_survival[n] == 1) next = 1.0;
+                else next = max(0.0, c - u_decay);
+            } else {
+                if (u_birth[n] == 1) next = 1.0;
+                else next = max(0.0, c - u_decay);
+            }
+            fragColor = vec4(next, 0, 0, 1);
+        }
+    `;
+
+    const smoothLifeFrag = `#version 300 es
+        precision highp float;
+        uniform sampler2D u_state;
+        uniform vec2 u_res;
+        uniform float u_ri, u_ra;
+        uniform float u_b1, u_b2, u_d1, u_d2;
+        uniform float u_alpha;
+        uniform bool u_wrap;
+        in vec2 v_uv;
+        out vec4 fragColor;
+        
+        float get(vec2 off) {
+            vec2 uv = v_uv + off / u_res;
+            if (u_wrap) uv = fract(uv);
+            else if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+            return texture(u_state, uv).r;
+        }
+        
+        float sigma(float x, float a, float b) {
+            return 1.0 / (1.0 + exp(-(x - a) * 4.0 / b));
+        }
+        
+        float sigmam(float x, float y, float m) {
+            return x * (1.0 - sigma(m, 0.5, 0.15)) + y * sigma(m, 0.5, 0.15);
+        }
+        
+        void main() {
+            float m = 0.0, M = 0.0;
+            float n = 0.0, N = 0.0;
+            int ri = int(u_ri);
+            int ra = int(u_ra);
+            
+            for (int dy = -ra; dy <= ra; dy++) {
+                for (int dx = -ra; dx <= ra; dx++) {
+                    float d = sqrt(float(dx*dx + dy*dy));
+                    float v = get(vec2(dx, dy));
+                    if (d <= u_ri) { m += v; M += 1.0; }
+                    else if (d <= u_ra) { n += v; N += 1.0; }
+                }
+            }
+            
+            m = M > 0.0 ? m / M : 0.0;
+            n = N > 0.0 ? n / N : 0.0;
+            
+            float s = sigma(n, sigmam(u_b1, u_d1, m), sigmam(u_b2, u_d2, m));
+            float c = get(vec2(0));
+            float next = clamp(c + u_alpha * (2.0 * s - 1.0), 0.0, 1.0);
+            
+            fragColor = vec4(next, 0, 0, 1);
+        }
+    `;
+
+    const leniaFrag = `#version 300 es
+        precision highp float;
+        uniform sampler2D u_state;
+        uniform vec2 u_res;
+        uniform float u_r;
+        uniform float u_mu;
+        uniform float u_sigma;
+        uniform float u_dt;
+        uniform bool u_wrap;
+        in vec2 v_uv;
+        out vec4 fragColor;
+        
+        float get(vec2 off) {
+            vec2 uv = v_uv + off / u_res;
+            if (u_wrap) uv = fract(uv);
+            else if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+            return texture(u_state, uv).r;
+        }
+        
+        float bell(float x, float m, float s) {
+            return exp(-pow((x - m) / s, 2.0) / 2.0);
+        }
+        
+        void main() {
+            float total = 0.0;
+            float kernelSum = 0.0;
+            int r = int(u_r);
+            
+            for (int dy = -r; dy <= r; dy++) {
+                for (int dx = -r; dx <= r; dx++) {
+                    float d = sqrt(float(dx*dx + dy*dy)) / u_r;
+                    if (d > 1.0) continue;
+                    float k = bell(d, 0.5, 0.15);
+                    total += get(vec2(dx, dy)) * k;
+                    kernelSum += k;
+                }
+            }
+            
+            float avg = kernelSum > 0.0 ? total / kernelSum : 0.0;
+            float growth = 2.0 * bell(avg, u_mu, u_sigma) - 1.0;
+            float c = get(vec2(0));
+            float next = clamp(c + u_dt * growth, 0.0, 1.0);
+            
+            fragColor = vec4(next, 0, 0, 1);
+        }
+    `;
+
+    const grayScottFrag = `#version 300 es
+        precision highp float;
+        uniform sampler2D u_state;
+        uniform vec2 u_res;
+        uniform float u_f, u_k, u_da, u_db;
+        uniform bool u_wrap;
+        in vec2 v_uv;
+        out vec4 fragColor;
+        
+        vec2 get(vec2 off) {
+            vec2 uv = v_uv + off / u_res;
+            if (u_wrap) uv = fract(uv);
+            else if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec2(1, 0);
+            return texture(u_state, uv).rg;
+        }
+        
+        void main() {
+            vec2 c = get(vec2(0));
+            float a = c.r, b = c.g;
+            
+            // Laplacian
+            vec2 lap = -c * 4.0;
+            lap += get(vec2(1, 0));
+            lap += get(vec2(-1, 0));
+            lap += get(vec2(0, 1));
+            lap += get(vec2(0, -1));
+            
+            float reaction = a * b * b;
+            float na = a + u_da * lap.r - reaction + u_f * (1.0 - a);
+            float nb = b + u_db * lap.g + reaction - (u_k + u_f) * b;
+            
+            fragColor = vec4(clamp(na, 0.0, 1.0), clamp(nb, 0.0, 1.0), 0, 1);
+        }
+    `;
+
+    const renderFrag = `#version 300 es
+        precision highp float;
+        uniform sampler2D u_state;
+        uniform vec3 u_color1, u_color2, u_color3;
+        uniform int u_mode;
+        in vec2 v_uv;
+        out vec4 fragColor;
+        
+        void main() {
+            vec4 s = texture(u_state, v_uv);
+            vec3 col;
+            if (u_mode == 4) {
+                // Gray-Scott: two chemicals
+                col = mix(u_color2, u_color1, s.r);
+                col = mix(col, u_color3, s.g);
+            } else {
+                col = mix(u_color2, u_color1, s.r);
+            }
+            fragColor = vec4(col, 1);
+        }
+    `;
+
+    // ============================================================
+    // WEBGL SETUP
+    // ============================================================
+
+    function createShader(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+            console.error('Shader error:', gl.getShaderInfoLog(s));
+            return null;
+        }
+        return s;
+    }
+
+    function createProgram(vSrc, fSrc) {
+        const p = gl.createProgram();
+        gl.attachShader(p, createShader(gl.VERTEX_SHADER, vSrc));
+        gl.attachShader(p, createShader(gl.FRAGMENT_SHADER, fSrc));
+        gl.linkProgram(p);
+        if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+            console.error('Program error:', gl.getProgramInfoLog(p));
+            return null;
+        }
+        return p;
+    }
+
+    function createTexture(w, h) {
+        const t = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.FLOAT, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        return t;
+    }
+
+    function initGL() {
+        programs.classic = createProgram(vertexShader, classicFrag);
+        programs.classicfade = createProgram(vertexShader, classicFadeFrag);
+        programs.smoothlife = createProgram(vertexShader, smoothLifeFrag);
+        programs.lenia = createProgram(vertexShader, leniaFrag);
+        programs.grayscott = createProgram(vertexShader, grayScottFrag);
+        programs.render = createProgram(vertexShader, renderFrag);
+
+        const verts = new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+
+        quadVAO = gl.createVertexArray();
+        gl.bindVertexArray(quadVAO);
+        gl.enableVertexAttribArray(0);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    function resize() {
+        const cont = document.getElementById('canvas-container');
+        const w = cont.clientWidth, h = cont.clientHeight;
+        state.gridWidth = Math.max(1, Math.floor(w / state.cellSize));
+        state.gridHeight = Math.max(1, Math.floor(h / state.cellSize));
+        
+        canvas.width = state.gridWidth;
+        canvas.height = state.gridHeight;
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+
+        for (let i = 0; i < 2; i++) {
+            if (textures[i]) gl.deleteTexture(textures[i]);
+            if (framebuffers[i]) gl.deleteFramebuffer(framebuffers[i]);
+            textures[i] = createTexture(state.gridWidth, state.gridHeight);
+            framebuffers[i] = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffers[i]);
+            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textures[i], 0);
+        }
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+        document.getElementById('stat-grid').textContent = `${state.gridWidth}x${state.gridHeight}`;
+        state.generation = 0;
+        initState('center');
+    }
+
+    // ============================================================
+    // STATE INITIALIZATION
+    // ============================================================
+
+    function initState(preset) {
+        const w = state.gridWidth, h = state.gridHeight;
+        const data = new Float32Array(w * h * 4);
+        const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
+
+        if (state.mode === 'grayscott') {
+            // Initialize with A=1, B=0 everywhere
+            for (let i = 0; i < w * h; i++) {
+                data[i * 4] = 1.0;     // A
+                data[i * 4 + 1] = 0.0; // B
+                data[i * 4 + 3] = 1.0;
+            }
+            // Add seed regions
+            if (preset === 'center' || preset === 'random') {
+                const r = 10;
+                for (let y = cy - r; y < cy + r; y++) {
+                    for (let x = cx - r; x < cx + r; x++) {
+                        if (x >= 0 && x < w && y >= 0 && y < h) {
+                            const i = (y * w + x) * 4;
+                            data[i] = 0.5 + Math.random() * 0.1;
+                            data[i + 1] = 0.25 + Math.random() * 0.1;
+                        }
+                    }
+                }
+            }
+            if (preset === 'multi') {
+                for (let s = 0; s < 5; s++) {
+                    const sx = Math.floor(Math.random() * w);
+                    const sy = Math.floor(Math.random() * h);
+                    const r = 8;
+                    for (let y = sy - r; y < sy + r; y++) {
+                        for (let x = sx - r; x < sx + r; x++) {
+                            if (x >= 0 && x < w && y >= 0 && y < h) {
+                                const i = (y * w + x) * 4;
+                                data[i] = 0.5;
+                                data[i + 1] = 0.25;
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Single channel modes
+            if (preset === 'random') {
+                for (let i = 0; i < w * h; i++) {
+                    data[i * 4] = Math.random() < state.density ? 1.0 : 0.0;
+                    data[i * 4 + 3] = 1.0;
+                }
+            } else if (preset === 'center') {
+                const r = Math.max(5, Math.floor(Math.min(w, h) / 10));
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        const dx = x - cx, dy = y - cy;
+                        const d = Math.sqrt(dx*dx + dy*dy);
+                        const i = (y * w + x) * 4;
+                        if (d < r) {
+                            data[i] = Math.random() < 0.8 ? 1.0 : 0.0;
+                        }
+                        data[i + 3] = 1.0;
+                    }
+                }
+            } else if (preset === 'multi') {
+                for (let s = 0; s < 8; s++) {
+                    const sx = Math.floor(Math.random() * w);
+                    const sy = Math.floor(Math.random() * h);
+                    const r = 5 + Math.floor(Math.random() * 10);
+                    for (let y = sy - r; y < sy + r; y++) {
+                        for (let x = sx - r; x < sx + r; x++) {
+                            if (x >= 0 && x < w && y >= 0 && y < h) {
+                                const dx = x - sx, dy = y - sy;
+                                if (Math.sqrt(dx*dx + dy*dy) < r) {
+                                    const i = (y * w + x) * 4;
+                                    data[i] = Math.random() < 0.7 ? 1.0 : 0.0;
+                                    data[i + 3] = 1.0;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        gl.bindTexture(gl.TEXTURE_2D, textures[currentTex]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, data);
+        state.generation = 0;
+    }
+
+    function clearState() {
+        const w = state.gridWidth, h = state.gridHeight;
+        const data = new Float32Array(w * h * 4);
+        if (state.mode === 'grayscott') {
+            for (let i = 0; i < w * h; i++) {
+                data[i * 4] = 1.0;
+                data[i * 4 + 3] = 1.0;
+            }
+        }
+        gl.bindTexture(gl.TEXTURE_2D, textures[currentTex]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, data);
+        state.generation = 0;
+    }
+
+    // ============================================================
+    // SIMULATION
+    // ============================================================
+
+    function step() {
+        const next = 1 - currentTex;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffers[next]);
+        gl.viewport(0, 0, state.gridWidth, state.gridHeight);
+
+        const modeMap = { classic: 0, classicfade: 1, smoothlife: 2, lenia: 3, grayscott: 4 };
+        const prog = programs[state.mode];
+        gl.useProgram(prog);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, textures[currentTex]);
+        gl.uniform1i(gl.getUniformLocation(prog, 'u_state'), 0);
+        gl.uniform2f(gl.getUniformLocation(prog, 'u_res'), state.gridWidth, state.gridHeight);
+        gl.uniform1i(gl.getUniformLocation(prog, 'u_wrap'), state.wrap ? 1 : 0);
+
+        if (state.mode === 'classic' || state.mode === 'classicfade') {
+            gl.uniform1iv(gl.getUniformLocation(prog, 'u_birth'), state.birth.map(b => b ? 1 : 0));
+            gl.uniform1iv(gl.getUniformLocation(prog, 'u_survival'), state.survival.map(b => b ? 1 : 0));
+            if (state.mode === 'classicfade') {
+                gl.uniform1f(gl.getUniformLocation(prog, 'u_decay'), state.fadeDecay);
+                gl.uniform1f(gl.getUniformLocation(prog, 'u_birthThresh'), state.fadeBirthThreshold);
+            }
+        } else if (state.mode === 'smoothlife') {
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_ri'), state.sl.ri);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_ra'), state.sl.ra);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_b1'), state.sl.b1);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_b2'), state.sl.b2);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_d1'), state.sl.d1);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_d2'), state.sl.d2);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_alpha'), state.sl.alpha);
+        } else if (state.mode === 'lenia') {
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_r'), state.lenia.r);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_mu'), state.lenia.mu);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_sigma'), state.lenia.sigma);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_dt'), state.lenia.dt);
+        } else if (state.mode === 'grayscott') {
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_f'), state.gs.f);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_k'), state.gs.k);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_da'), state.gs.da);
+            gl.uniform1f(gl.getUniformLocation(prog, 'u_db'), state.gs.db);
+        }
+
+        gl.bindVertexArray(quadVAO);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        currentTex = next;
+        state.generation++;
+    }
+
+    function render() {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.useProgram(programs.render);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, textures[currentTex]);
+        gl.uniform1i(gl.getUniformLocation(programs.render, 'u_state'), 0);
+        gl.uniform3fv(gl.getUniformLocation(programs.render, 'u_color1'), state.color1);
+        gl.uniform3fv(gl.getUniformLocation(programs.render, 'u_color2'), state.color2);
+        gl.uniform3fv(gl.getUniformLocation(programs.render, 'u_color3'), state.color3);
+
+        const modeMap = { classic: 0, classicfade: 1, smoothlife: 2, lenia: 3, grayscott: 4 };
+        gl.uniform1i(gl.getUniformLocation(programs.render, 'u_mode'), modeMap[state.mode]);
+
+        gl.bindVertexArray(quadVAO);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    // ============================================================
+    // SONIFICATION
+    // ============================================================
+
+    let sonifyInterval = null;
+    let cachedPixels = null;
+
+    function startSonification() {
+        if (sonifyInterval) clearInterval(sonifyInterval);
+        if (!state.sonify) return;
+        
+        sonifyInterval = setInterval(() => {
+            if (!state.sonify) return;
+            
+            const cols = state.sonifyCols;
+            const rows = state.sonifyRows;
+            const w = state.gridWidth;
+            const h = state.gridHeight;
+            
+            // Read full texture
+            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffers[currentTex]);
+            if (!cachedPixels || cachedPixels.length !== w * h * 4) {
+                cachedPixels = new Float32Array(w * h * 4);
+            }
+            gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, cachedPixels);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            
+            // Calculate cell sizes
+            const cellW = w / cols;
+            const cellH = h / rows;
+            
+            // Process each row
+            for (let row = 0; row < rows; row++) {
+                const rowData = new Array(cols);
+                
+                for (let col = 0; col < cols; col++) {
+                    // Calculate bounds for this cell
+                    const x0 = Math.floor(col * cellW);
+                    const x1 = Math.floor((col + 1) * cellW);
+                    const y0 = Math.floor(row * cellH);
+                    const y1 = Math.floor((row + 1) * cellH);
+                    
+                    // Average the pixels in this cell
+                    let sum = 0;
+                    let count = 0;
+                    for (let y = y0; y < y1; y++) {
+                        for (let x = x0; x < x1; x++) {
+                            const idx = (y * w + x) * 4;
+                            // Use red channel (primary state value)
+                            // For Gray-Scott, could combine r and g
+                            if (state.mode === 'grayscott') {
+                                sum += cachedPixels[idx + 1]; // Use B channel for GS
+                            } else {
+                                sum += cachedPixels[idx];
+                            }
+                            count++;
+                        }
+                    }
+                    rowData[col] = count > 0 ? sum / count : 0;
+                }
+                
+                // Output row: row_index, val0, val1, val2, ...
+                if (window.max) {
+                    window.max.outlet('row', row, ...rowData);
+                }
+            }
+            
+            // Also output aggregate stats
+            let totalMass = 0;
+            let weightedX = 0, weightedY = 0;
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const idx = (y * w + x) * 4;
+                    const v = state.mode === 'grayscott' ? cachedPixels[idx + 1] : cachedPixels[idx];
+                    totalMass += v;
+                    weightedX += x * v;
+                    weightedY += y * v;
+                }
+            }
+            
+            const centerX = totalMass > 0 ? (weightedX / totalMass) / w : 0.5;
+            const centerY = totalMass > 0 ? (weightedY / totalMass) / h : 0.5;
+            const avgMass = totalMass / (w * h);
+            
+            // Update GUI stats
+            document.getElementById('stat-mass').textContent = avgMass.toFixed(3);
+            document.getElementById('stat-center').textContent = `${centerX.toFixed(2)}, ${centerY.toFixed(2)}`;
+            
+            // Output to Max if available
+            if (window.max) {
+                window.max.outlet('mass', avgMass);
+                window.max.outlet('center', centerX, centerY);
+            }
+            
+        }, state.sonifyRate);
+    }
+
+    function stopSonification() {
+        if (sonifyInterval) {
+            clearInterval(sonifyInterval);
+            sonifyInterval = null;
+        }
+    }
+
+    // ============================================================
+    // MOUSE DRAWING
+    // ============================================================
+
+    let isDrawing = false, lastPos = null;
+
+    function screenToGrid(e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.floor((e.clientX - rect.left) / rect.width * state.gridWidth);
+        const y = Math.floor((1 - (e.clientY - rect.top) / rect.height) * state.gridHeight);
+        return { x, y };
+    }
+
+    function paintAt(x, y) {
+        const r = state.brushSize;
+        const w = state.gridWidth, h = state.gridHeight;
+        const data = new Float32Array(r * 2 * r * 2 * 4);
+        
+        const x0 = Math.max(0, x - r);
+        const y0 = Math.max(0, y - r);
+        const x1 = Math.min(w, x + r);
+        const y1 = Math.min(h, y + r);
+        const pw = x1 - x0, ph = y1 - y0;
+        if (pw <= 0 || ph <= 0) return;
+
+        const paintData = new Float32Array(pw * ph * 4);
+        for (let py = 0; py < ph; py++) {
+            for (let px = 0; px < pw; px++) {
+                const dx = (x0 + px) - x, dy = (y0 + py) - y;
+                const d = Math.sqrt(dx*dx + dy*dy);
+                const i = (py * pw + px) * 4;
+                if (d < r) {
+                    if (state.mode === 'grayscott') {
+                        paintData[i] = 0.5;
+                        paintData[i + 1] = 0.25;
+                    } else {
+                        paintData[i] = 1.0;
+                    }
+                    paintData[i + 3] = 1.0;
+                } else {
+                    // Read existing
+                    paintData[i + 3] = 1.0;
+                }
+            }
+        }
+
+        // Read existing data first
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffers[currentTex]);
+        const existingData = new Float32Array(pw * ph * 4);
+        gl.readPixels(x0, y0, pw, ph, gl.RGBA, gl.FLOAT, existingData);
+
+        // Merge
+        for (let i = 0; i < pw * ph; i++) {
+            const idx = i * 4;
+            const dx = (i % pw) + x0 - x, dy = Math.floor(i / pw) + y0 - y;
+            const d = Math.sqrt(dx*dx + dy*dy);
+            if (d >= r) {
+                paintData[idx] = existingData[idx];
+                paintData[idx + 1] = existingData[idx + 1];
+                paintData[idx + 2] = existingData[idx + 2];
+            }
+        }
+
+        gl.bindTexture(gl.TEXTURE_2D, textures[currentTex]);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, pw, ph, gl.RGBA, gl.FLOAT, paintData);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+
+    function drawLine(x0, y0, x1, y1) {
+        const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+        const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+        let err = dx - dy;
+        while (true) {
+            paintAt(x0, y0);
+            if (x0 === x1 && y0 === y1) break;
+            const e2 = 2 * err;
+            if (e2 > -dy) { err -= dy; x0 += sx; }
+            if (e2 < dx) { err += dx; y0 += sy; }
+        }
+    }
+
+    canvas.addEventListener('mousedown', e => {
+        if (e.button === 0) {
+            isDrawing = true;
+            const p = screenToGrid(e);
+            paintAt(p.x, p.y);
+            lastPos = p;
+        }
+    });
+
+    canvas.addEventListener('mousemove', e => {
+        if (isDrawing) {
+            const p = screenToGrid(e);
+            if (lastPos) drawLine(lastPos.x, lastPos.y, p.x, p.y);
+            lastPos = p;
+        }
+    });
+
+    canvas.addEventListener('mouseup', () => { isDrawing = false; lastPos = null; });
+    canvas.addEventListener('mouseleave', () => { isDrawing = false; lastPos = null; });
+
+    // ============================================================
+    // UI
+    // ============================================================
+
+    function showModeParams() {
+        document.querySelectorAll('.mode-params').forEach(el => el.classList.remove('active'));
+        const el = document.getElementById('params-' + state.mode);
+        if (el) el.classList.add('active');
+    }
+
+    function linkSlider(id, obj, key, isFloat = true) {
+        const slider = document.getElementById(id);
+        const valEl = document.getElementById(id + '-val');
+        if (!slider) return;
+        slider.addEventListener('input', () => {
+            const v = isFloat ? parseFloat(slider.value) : parseInt(slider.value);
+            if (obj) obj[key] = v;
+            else state[key] = v;
+            if (valEl) valEl.textContent = isFloat ? v.toFixed(3) : v;
+        });
+        // Init display
+        if (valEl) {
+            const v = obj ? obj[key] : state[key];
+            valEl.textContent = isFloat ? v.toFixed(3) : v;
+            slider.value = v;
+        }
+    }
+
+    function setupUI() {
+        // Mode select
+        document.getElementById('mode-select').addEventListener('change', e => {
+            state.mode = e.target.value;
+            showModeParams();
+            initState('center');
+        });
+
+        // Playback
+        document.getElementById('btn-play').addEventListener('click', () => {
+            state.running = true;
+            document.getElementById('btn-play').classList.add('active');
+            document.getElementById('btn-pause').classList.remove('active');
+        });
+        document.getElementById('btn-pause').addEventListener('click', () => {
+            state.running = false;
+            document.getElementById('btn-pause').classList.add('active');
+            document.getElementById('btn-play').classList.remove('active');
+        });
+        document.getElementById('btn-step').addEventListener('click', () => { step(); render(); });
+
+        linkSlider('speed', null, 'speed', false);
+
+        // Classic rules
+        const birthGrid = document.getElementById('birth-rules');
+        const survGrid = document.getElementById('survival-rules');
+        for (let i = 0; i < 9; i++) {
+            const bb = document.createElement('button');
+            bb.className = 'rule-btn' + (state.birth[i] ? ' active' : '');
+            bb.textContent = i;
+            bb.addEventListener('click', () => {
+                state.birth[i] = !state.birth[i];
+                bb.classList.toggle('active');
+            });
+            birthGrid.appendChild(bb);
+
+            const sb = document.createElement('button');
+            sb.className = 'rule-btn' + (state.survival[i] ? ' active' : '');
+            sb.textContent = i;
+            sb.addEventListener('click', () => {
+                state.survival[i] = !state.survival[i];
+                sb.classList.toggle('active');
+            });
+            survGrid.appendChild(sb);
+        }
+
+        // Rule presets
+        const rulePresets = {
+            life: { b: [3], s: [2,3] },
+            seeds: { b: [2], s: [] },
+            daynight: { b: [3,6,7,8], s: [3,4,6,7,8] },
+            highlife: { b: [3,6], s: [2,3] },
+            diamoeba: { b: [3,5,6,7,8], s: [5,6,7,8] },
+            maze: { b: [3], s: [1,2,3,4,5] }
+        };
+        document.getElementById('rule-preset').addEventListener('change', e => {
+            const p = rulePresets[e.target.value];
+            if (p) {
+                state.birth = Array(9).fill(false);
+                state.survival = Array(9).fill(false);
+                p.b.forEach(n => state.birth[n] = true);
+                p.s.forEach(n => state.survival[n] = true);
+                birthGrid.querySelectorAll('.rule-btn').forEach((b, i) => b.classList.toggle('active', state.birth[i]));
+                survGrid.querySelectorAll('.rule-btn').forEach((b, i) => b.classList.toggle('active', state.survival[i]));
+            }
+        });
+
+        // Fade params
+        linkSlider('fade-decay', null, 'fadeDecay');
+        linkSlider('fade-birth', null, 'fadeBirthThreshold');
+
+        // Smooth Life params
+        linkSlider('sl-ri', state.sl, 'ri');
+        linkSlider('sl-ra', state.sl, 'ra');
+        linkSlider('sl-b1', state.sl, 'b1');
+        linkSlider('sl-b2', state.sl, 'b2');
+        linkSlider('sl-d1', state.sl, 'd1');
+        linkSlider('sl-d2', state.sl, 'd2');
+        linkSlider('sl-alpha', state.sl, 'alpha');
+
+        // Lenia params
+        linkSlider('lenia-r', state.lenia, 'r', false);
+        linkSlider('lenia-mu', state.lenia, 'mu');
+        linkSlider('lenia-sigma', state.lenia, 'sigma');
+        linkSlider('lenia-dt', state.lenia, 'dt');
+
+        // Lenia presets
+        const leniaPresets = {
+            orbium: { r: 13, mu: 0.15, sigma: 0.017, dt: 0.1 },
+            geminium: { r: 10, mu: 0.14, sigma: 0.014, dt: 0.1 },
+            hydrogeminium: { r: 13, mu: 0.15, sigma: 0.015, dt: 0.1 }
+        };
+        document.getElementById('lenia-preset').addEventListener('change', e => {
+            const p = leniaPresets[e.target.value];
+            if (p) {
+                Object.assign(state.lenia, p);
+                ['lenia-r', 'lenia-mu', 'lenia-sigma', 'lenia-dt'].forEach(id => {
+                    const el = document.getElementById(id);
+                    const key = id.split('-')[1];
+                    el.value = state.lenia[key];
+                    document.getElementById(id + '-val').textContent = 
+                        key === 'r' ? state.lenia[key] : state.lenia[key].toFixed(3);
+                });
+            }
+        });
+
+        // Gray-Scott params
+        linkSlider('gs-f', state.gs, 'f');
+        linkSlider('gs-k', state.gs, 'k');
+        linkSlider('gs-da', state.gs, 'da');
+        linkSlider('gs-db', state.gs, 'db');
+
+        // Gray-Scott presets
+        const gsPresets = {
+            mitosis: { f: 0.0367, k: 0.0649, da: 1.0, db: 0.5 },
+            coral: { f: 0.0545, k: 0.062, da: 1.0, db: 0.5 },
+            spirals: { f: 0.018, k: 0.051, da: 1.0, db: 0.5 },
+            spots: { f: 0.035, k: 0.065, da: 1.0, db: 0.5 },
+            waves: { f: 0.014, k: 0.045, da: 1.0, db: 0.5 }
+        };
+        document.getElementById('gs-preset').addEventListener('change', e => {
+            const p = gsPresets[e.target.value];
+            if (p) {
+                Object.assign(state.gs, p);
+                ['gs-f', 'gs-k', 'gs-da', 'gs-db'].forEach(id => {
+                    const el = document.getElementById(id);
+                    const key = id.split('-')[1];
+                    el.value = state.gs[key];
+                    document.getElementById(id + '-val').textContent = state.gs[key].toFixed(3);
+                });
+            }
+        });
+
+        // Init controls
+        document.getElementById('btn-init').addEventListener('click', () => {
+            initState(document.getElementById('init-preset').value);
+        });
+        document.getElementById('btn-clear').addEventListener('click', clearState);
+        linkSlider('density', null, 'density');
+        linkSlider('brush-size', null, 'brushSize', false);
+
+        // Display
+        document.getElementById('cell-size').addEventListener('change', e => {
+            state.cellSize = Math.max(1, Math.min(8, parseInt(e.target.value) || 2));
+            e.target.value = state.cellSize;
+            resize();
+        });
+
+        function hexToRgb(hex) {
+            return [
+                parseInt(hex.slice(1,3), 16) / 255,
+                parseInt(hex.slice(3,5), 16) / 255,
+                parseInt(hex.slice(5,7), 16) / 255
+            ];
+        }
+
+        document.getElementById('color1').addEventListener('input', e => state.color1 = hexToRgb(e.target.value));
+        document.getElementById('color2').addEventListener('input', e => state.color2 = hexToRgb(e.target.value));
+        document.getElementById('color3').addEventListener('input', e => state.color3 = hexToRgb(e.target.value));
+        document.getElementById('wrap').addEventListener('change', e => state.wrap = e.target.checked);
+
+        // Sonification controls
+        document.getElementById('sonify').addEventListener('change', e => {
+            state.sonify = e.target.checked;
+            if (state.sonify) startSonification();
+            else stopSonification();
+        });
+        
+        document.getElementById('sonify-cols').addEventListener('input', e => {
+            state.sonifyCols = parseInt(e.target.value);
+            document.getElementById('sonify-cols-val').textContent = state.sonifyCols;
+            if (state.sonify) startSonification();
+        });
+        
+        document.getElementById('sonify-rows').addEventListener('input', e => {
+            state.sonifyRows = parseInt(e.target.value);
+            document.getElementById('sonify-rows-val').textContent = state.sonifyRows;
+            if (state.sonify) startSonification();
+        });
+        
+        document.getElementById('sonify-rate').addEventListener('input', e => {
+            state.sonifyRate = parseInt(e.target.value);
+            document.getElementById('sonify-rate-val').textContent = state.sonifyRate;
+            if (state.sonify) startSonification();
+        });
+
+        window.addEventListener('resize', resize);
+        showModeParams();
+    }
+
+    // ============================================================
+    // MAX API
+    // ============================================================
+
+    function setupMaxAPI() {
+        if (!window.max) return;
+        document.getElementById('max-status').textContent = 'Max: Connected';
+        document.getElementById('max-status').classList.remove('disconnected');
+        document.getElementById('max-status').classList.add('connected');
+
+        window.max.bindInlet('mode', v => {
+            const modes = ['classic', 'classicfade', 'smoothlife', 'lenia', 'grayscott'];
+            if (v >= 0 && v < modes.length) {
+                state.mode = modes[v];
+                document.getElementById('mode-select').value = state.mode;
+                showModeParams();
+            }
+        });
+        window.max.bindInlet('running', v => {
+            state.running = v > 0;
+            document.getElementById('btn-play').classList.toggle('active', state.running);
+            document.getElementById('btn-pause').classList.toggle('active', !state.running);
+        });
+        window.max.bindInlet('speed', v => { state.speed = Math.max(1, Math.min(20, Math.floor(v))); });
+        window.max.bindInlet('step', () => { step(); render(); });
+        window.max.bindInlet('init', v => { initState(['random','center','multi','clear'][v] || 'center'); });
+        window.max.bindInlet('clear', clearState);
+        window.max.bindInlet('density', v => { state.density = Math.max(0.01, Math.min(1, v)); });
+        window.max.bindInlet('brush_size', v => { state.brushSize = Math.max(1, Math.min(30, v)); });
+        window.max.bindInlet('wrap', v => { state.wrap = v > 0; });
+        window.max.bindInlet('cell_size', v => {
+            state.cellSize = Math.max(1, Math.min(8, Math.floor(v)));
+            resize();
+        });
+
+        // Classic
+        window.max.bindInlet('birth', (...b) => { for (let i = 0; i < 9; i++) state.birth[i] = b[i] > 0; });
+        window.max.bindInlet('survival', (...s) => { for (let i = 0; i < 9; i++) state.survival[i] = s[i] > 0; });
+
+        // Fade
+        window.max.bindInlet('fade_decay', v => { state.fadeDecay = v; });
+        window.max.bindInlet('fade_birth_thresh', v => { state.fadeBirthThreshold = v; });
+
+        // Smooth Life
+        window.max.bindInlet('sl_ri', v => { state.sl.ri = v; });
+        window.max.bindInlet('sl_ra', v => { state.sl.ra = v; });
+        window.max.bindInlet('sl_b1', v => { state.sl.b1 = v; });
+        window.max.bindInlet('sl_b2', v => { state.sl.b2 = v; });
+        window.max.bindInlet('sl_d1', v => { state.sl.d1 = v; });
+        window.max.bindInlet('sl_d2', v => { state.sl.d2 = v; });
+        window.max.bindInlet('sl_alpha', v => { state.sl.alpha = v; });
+
+        // Lenia
+        window.max.bindInlet('lenia_r', v => { state.lenia.r = v; });
+        window.max.bindInlet('lenia_mu', v => { state.lenia.mu = v; });
+        window.max.bindInlet('lenia_sigma', v => { state.lenia.sigma = v; });
+        window.max.bindInlet('lenia_dt', v => { state.lenia.dt = v; });
+
+        // Gray-Scott
+        window.max.bindInlet('gs_f', v => { state.gs.f = v; });
+        window.max.bindInlet('gs_k', v => { state.gs.k = v; });
+        window.max.bindInlet('gs_da', v => { state.gs.da = v; });
+        window.max.bindInlet('gs_db', v => { state.gs.db = v; });
+
+        // Colors
+        window.max.bindInlet('color1', (r,g,b) => { state.color1 = [r,g,b]; });
+        window.max.bindInlet('color2', (r,g,b) => { state.color2 = [r,g,b]; });
+        window.max.bindInlet('color3', (r,g,b) => { state.color3 = [r,g,b]; });
+
+        // Mouse emulation (normalized 0-1 coordinates)
+        let oscLastPos = null;
+        let oscIsDrawing = false;
+        
+        window.max.bindInlet('paint', (x, y, click) => {
+            // x, y are normalized 0-1, click is 0 or 1
+            const gridX = Math.floor(x * state.gridWidth);
+            const gridY = Math.floor(y * state.gridHeight);
+            
+            if (click > 0) {
+                if (oscIsDrawing && oscLastPos) {
+                    drawLine(oscLastPos.x, oscLastPos.y, gridX, gridY);
+                } else {
+                    paintAt(gridX, gridY);
+                }
+                oscLastPos = { x: gridX, y: gridY };
+                oscIsDrawing = true;
+            } else {
+                oscIsDrawing = false;
+                oscLastPos = null;
+            }
+        });
+        
+        // Single point paint (no line interpolation)
+        window.max.bindInlet('paint_at', (x, y) => {
+            const gridX = Math.floor(x * state.gridWidth);
+            const gridY = Math.floor(y * state.gridHeight);
+            paintAt(gridX, gridY);
+        });
+
+        // Sonification
+        window.max.bindInlet('sonify', v => {
+            state.sonify = v > 0;
+            if (state.sonify) startSonification();
+            else stopSonification();
+        });
+        window.max.bindInlet('sonify_grid', (cols, rows) => {
+            state.sonifyCols = Math.max(1, Math.min(64, Math.floor(cols)));
+            state.sonifyRows = Math.max(1, Math.min(64, Math.floor(rows)));
+            if (state.sonify) startSonification(); // Restart with new grid
+        });
+        window.max.bindInlet('sonify_rate', v => {
+            state.sonifyRate = Math.max(10, Math.min(1000, Math.floor(v)));
+            if (state.sonify) startSonification(); // Restart with new rate
+        });
+
+        // Output
+        setInterval(() => {
+            window.max.outlet('generation', state.generation);
+            window.max.outlet('fps', currentFps);
+            window.max.outlet('mode', state.mode);
+        }, 100);
+
+        window.max.outlet('ready', 1);
+    }
+
+    // ============================================================
+    // MAIN LOOP
+    // ============================================================
+
+    function animate() {
+        if (state.running) {
+            for (let i = 0; i < state.speed; i++) step();
+        }
+        render();
+
+        frameCount++;
+        const now = performance.now();
+        if (now - lastFpsTime >= 1000) {
+            currentFps = frameCount;
+            frameCount = 0;
+            lastFpsTime = now;
+            document.getElementById('stat-fps').textContent = currentFps;
+            document.getElementById('stat-gen').textContent = state.generation;
+        }
+
+        requestAnimationFrame(animate);
+    }
+
+    // Init
+    initGL();
+    setupUI();
+    resize();
+    setupMaxAPI();
+    animate();
+
+    </script>
+</body>
+</html>
