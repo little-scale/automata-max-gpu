@@ -295,20 +295,6 @@ Load the HTML file in a `jweb` object. All parameters can be controlled via mess
 [unpack 0. 0. 0. ...]  <- Unpack row values
 ```
 
-### Hand Tracking Input
-
-```
-[your-hand-tracker]   <- e.g. MediaPipe via OSC
-|
-[unpack 0. 0. 0.]     <- x y pinch
-|     |     |
-[pack 0. 0. 0.]
-|
-[prepend paint]
-|
-[jweb]
-```
-
 ---
 
 ## Technical Notes
